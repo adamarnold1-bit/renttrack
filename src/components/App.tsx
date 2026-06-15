@@ -10,6 +10,7 @@ type Property = { id: string; name: string; address: string; units: number };
 type Renter = { id: string; name: string; email: string; propertyId: string; unit: string; rentAmount: number; dueDay: number; pin?: string };
 type Payment = { id: string; renterId: string; amount: number; date: string; status: "paid"|"pending"|"late"; note: string };
 type Allocation = { id: string; label: string; pct: number; color: string };
+type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string };
 
 function toast(msg: string, type: "success"|"error"|"info" = "success") {
   const el = document.createElement("div");
@@ -296,6 +297,113 @@ function AllocationsTab({ allocations, reload }: { allocations: Allocation[]; re
   );
 }
 
+function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Property[]; reload: () => void }) {
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ name: "", propertyId: "", amount: "", dueDate: "", frequency: "monthly", status: "pending", notes: "" });
+  const save = async () => {
+    if (!form.name || !form.amount) { toast("Name and amount required", "error"); return; }
+    await post("bills", { ...form, amount: parseFloat(form.amount) });
+    toast("Bill added"); setModal(false); setForm({ name: "", propertyId: "", amount: "", dueDate: "", frequency: "monthly", status: "pending", notes: "" }); reload();
+  };
+  const remove = async (id: string) => {
+    if (!await confirm("Delete this bill?")) return;
+    await del("bills", id); reload(); toast("Removed");
+  };
+  const updateStatus = async (bill: Bill, status: string) => {
+    await apiFetch(`${API("bills")}&id=${bill.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    reload(); toast("Status updated");
+  };
+  const propName = (id: string) => properties.find(p => p.id === id)?.name ?? "—";
+  const totalMonthly = bills.filter(b => b.frequency === "monthly").reduce((s,b) => s+b.amount, 0);
+  const totalAnnual = bills.reduce((s,b) => {
+    if (b.frequency === "monthly") return s + b.amount * 12;
+    if (b.frequency === "annual") return s + b.amount;
+    return s + b.amount;
+  }, 0);
+
+  return (
+    <div>
+      <div class="rt-stats">
+        <div class="rt-stat"><div class="rt-stat-label">Monthly Bills</div><div class="rt-stat-value teal">{fmt(totalMonthly)}</div></div>
+        <div class="rt-stat"><div class="rt-stat-label">Annual Total</div><div class="rt-stat-value amber">{fmt(totalAnnual)}</div></div>
+        <div class="rt-stat"><div class="rt-stat-label">Total Bills</div><div class="rt-stat-value">{bills.length}</div></div>
+      </div>
+      <div class="rt-card-header">
+        <div class="rt-card-title">Bills ({bills.length})</div>
+        <button class="rt-btn rt-btn-primary rt-btn-sm" onClick={() => setModal(true)}>+ Add Bill</button>
+      </div>
+      {bills.length === 0 ? (
+        <div class="rt-empty"><div class="rt-empty-icon">🧾</div><div>No bills added yet.</div></div>
+      ) : (
+        <div class="rt-table-wrap">
+          <table class="rt-table">
+            <thead><tr><th>Bill</th><th>Property</th><th>Amount</th><th>Frequency</th><th>Due Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+            <tbody>
+              {bills.map(b => (
+                <tr key={b.id}>
+                  <td style="font-weight:600">{b.name}</td>
+                  <td>{propName(b.propertyId)}</td>
+                  <td style="color:var(--rt-teal);font-weight:600">{fmt(b.amount)}</td>
+                  <td style="text-transform:capitalize">{b.frequency}</td>
+                  <td>{b.dueDate || "—"}</td>
+                  <td>
+                    <select class="rt-select" style="padding:4px 8px;font-size:12px;min-height:unset" value={b.status} onChange={e => updateStatus(b, (e.target as HTMLSelectElement).value)}>
+                      <option value="paid">Paid</option>
+                      <option value="pending">Pending</option>
+                      <option value="overdue">Overdue</option>
+                    </select>
+                  </td>
+                  <td class="text-dim">{b.notes || "—"}</td>
+                  <td><button class="rt-btn rt-btn-danger rt-btn-sm" onClick={() => remove(b.id)}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {modal && (
+        <Modal title="Add Bill" onClose={() => setModal(false)}>
+          <div class="rt-form">
+            <div class="rt-field"><label class="rt-label">Bill Name</label><input class="rt-input" value={form.name} onInput={e => setForm(f=>({...f,name:(e.target as HTMLInputElement).value}))} placeholder="e.g. Electric, Mortgage, Insurance" /></div>
+            <div class="rt-field">
+              <label class="rt-label">Property (optional)</label>
+              <select class="rt-select" value={form.propertyId} onChange={e => setForm(f=>({...f,propertyId:(e.target as HTMLSelectElement).value}))}>
+                <option value="">All properties / General</option>
+                {properties.map(p => <option value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div class="rt-form-row">
+              <div class="rt-field"><label class="rt-label">Amount</label><input class="rt-input" type="number" inputMode="decimal" value={form.amount} onInput={e => setForm(f=>({...f,amount:(e.target as HTMLInputElement).value}))} placeholder="0.00" /></div>
+              <div class="rt-field">
+                <label class="rt-label">Frequency</label>
+                <select class="rt-select" value={form.frequency} onChange={e => setForm(f=>({...f,frequency:(e.target as HTMLSelectElement).value}))}>
+                  <option value="monthly">Monthly</option>
+                  <option value="annual">Annual</option>
+                  <option value="quarterly">Quarterly</option>
+                  <option value="one-time">One-time</option>
+                </select>
+              </div>
+            </div>
+            <div class="rt-form-row">
+              <div class="rt-field"><label class="rt-label">Due Date</label><input class="rt-input" type="date" value={form.dueDate} onInput={e => setForm(f=>({...f,dueDate:(e.target as HTMLInputElement).value}))} /></div>
+              <div class="rt-field">
+                <label class="rt-label">Status</label>
+                <select class="rt-select" value={form.status} onChange={e => setForm(f=>({...f,status:(e.target as HTMLSelectElement).value}))}>
+                  <option value="pending">Pending</option>
+                  <option value="paid">Paid</option>
+                  <option value="overdue">Overdue</option>
+                </select>
+              </div>
+            </div>
+            <div class="rt-field"><label class="rt-label">Notes</label><input class="rt-input" value={form.notes} onInput={e => setForm(f=>({...f,notes:(e.target as HTMLInputElement).value}))} placeholder="e.g. Auto-pay, account #" /></div>
+            <button class="rt-btn rt-btn-primary w-full mt-2" onClick={save}>Save Bill</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function AdminAuth({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
   const [confirm2, setConfirm2] = useState("");
@@ -348,11 +456,12 @@ function AdminPanel() {
   const [renters,,reloadRenters] = useData<Renter>("renters");
   const [payments,,reloadPayments] = useData<Payment>("payments");
   const [allocations,,reloadAllocs] = useData<Allocation>("allocations");
+  const [bills,,reloadBills] = useData<Bill>("bills");
   const [tab, setTab] = useState("properties");
   return (
     <div>
       <div class="rt-tabs">
-        {[["properties","🏘️ Properties"],["renters","👤 Renters"],["payments","💳 Payments"],["allocations","🥧 Allocations"]].map(([id,label]) => (
+        {[["properties","🏘️ Properties"],["renters","👤 Renters"],["payments","💳 Payments"],["allocations","🥧 Allocations"],["bills","🧾 Bills"]].map(([id,label]) => (
           <button key={id} class={`rt-tab${tab===id?" active":""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
       </div>
@@ -360,6 +469,7 @@ function AdminPanel() {
       {tab==="renters" && <RentersTab renters={renters} properties={properties} reload={reloadRenters} />}
       {tab==="payments" && <PaymentsTab payments={payments} renters={renters} reload={reloadPayments} />}
       {tab==="allocations" && <AllocationsTab allocations={allocations} reload={reloadAllocs} />}
+      {tab==="bills" && <BillsTab bills={bills} properties={properties} reload={reloadBills} />}
     </div>
   );
 }
