@@ -26,6 +26,16 @@ function paidThroughDefault(renter: Renter | undefined, payDate: string): string
 }
 type Allocation = { id: string; label: string; pct: number; color: string };
 type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string; confirmationNumber?: string };
+type PayMethod = { id: string; method: string; handle: string; enabled: boolean };
+
+const PAY_METHODS: { key: string; label: string; icon: string; linkTemplate?: (h: string) => string; instructions: (h: string) => string }[] = [
+  { key: "cashapp",  label: "Cash App",  icon: "💚", linkTemplate: h => `https://cash.app/${h}`,    instructions: h => `Open Cash App → tap $ → search ${h}` },
+  { key: "paypal",   label: "PayPal",    icon: "🔵", linkTemplate: h => `https://paypal.me/${h}`,   instructions: h => `Go to paypal.me/${h} or open PayPal → Send → ${h}` },
+  { key: "zelle",    label: "Zelle",     icon: "🟣", instructions: h => `Open your bank app → Zelle → Send money to ${h}` },
+  { key: "applepay", label: "Apple Pay", icon: "🍎", instructions: h => `Open Messages → new message to ${h} → tap the $ icon → enter amount → send` },
+  { key: "chime",    label: "Chime",     icon: "🟡", instructions: h => `Open Chime → Pay Anyone tab → search ${h} → enter amount` },
+  { key: "sofi",     label: "SoFi",      icon: "🟢", instructions: h => `Open SoFi → Money tab → Send Money → search or enter ${h}` },
+];
 
 function toast(msg: string, type: "success"|"error"|"info" = "success") {
   const el = document.createElement("div");
@@ -357,6 +367,90 @@ function AllocationsTab({ allocations, reload }: { allocations: Allocation[]; re
   );
 }
 
+function PayMethodsTab({ payMethods, reload }: { payMethods: PayMethod[]; reload: () => void }) {
+  const [saving, setSaving] = useState<string|null>(null);
+  const getMethod = (key: string) => payMethods.find(m => m.method === key);
+
+  const toggle = async (key: string, enabled: boolean) => {
+    const existing = getMethod(key);
+    if (!existing) return;
+    setSaving(key);
+    await apiFetch(`${API("payMethods")}&id=${existing.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });
+    reload(); setSaving(null);
+  };
+
+  const saveHandle = async (key: string, handle: string) => {
+    const existing = getMethod(key);
+    setSaving(key);
+    if (existing) {
+      await apiFetch(`${API("payMethods")}&id=${existing.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ handle }) });
+    } else {
+      await apiFetch(API("payMethods"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ method: key, handle, enabled: true }) });
+    }
+    reload(); setSaving(null); toast("Saved");
+  };
+
+  return (
+    <div>
+      <div class="rt-card-header">
+        <div class="rt-card-title">Payment Methods</div>
+        <div style="font-size:13px;color:var(--rt-muted)">Configure how renters can pay you</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px">
+        {PAY_METHODS.map(pm => {
+          const saved = getMethod(pm.key);
+          const [localHandle, setLocalHandle] = useState(saved?.handle ?? "");
+          const [editing, setEditing] = useState(false);
+          const enabled = saved?.enabled ?? false;
+          const hasHandle = !!(saved?.handle);
+          return (
+            <div key={pm.key} class="rt-card" style="padding:14px 16px;margin-bottom:0">
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:hasHandle&&!editing?8px:0">
+                <span style="font-size:20px">{pm.icon}</span>
+                <div style="flex:1">
+                  <div style="font-weight:600;font-size:14px">{pm.label}</div>
+                  {pm.linkTemplate && <div style="font-size:11px;color:var(--rt-muted)">Direct link available</div>}
+                </div>
+                {hasHandle && (
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                    <span style="color:var(--rt-muted)">{enabled?"On":"Off"}</span>
+                    <div style={`width:36px;height:20px;border-radius:10px;background:${enabled?"var(--rt-teal)":"rgba(255,255,255,0.15)"};cursor:pointer;position:relative;transition:background 0.2s`}
+                      onClick={() => toggle(pm.key, !enabled)}>
+                      <div style={`position:absolute;top:3px;width:14px;height:14px;border-radius:50%;background:white;transition:left 0.2s;left:${enabled?"19px":"3px"}`} />
+                    </div>
+                  </label>
+                )}
+                <button class="rt-btn rt-btn-ghost rt-btn-sm" onClick={() => { setLocalHandle(saved?.handle ?? ""); setEditing(e => !e); }}>
+                  {editing ? "Cancel" : hasHandle ? "Edit" : "Set Up"}
+                </button>
+              </div>
+              {hasHandle && !editing && (
+                <div style="font-size:13px;color:var(--rt-muted);margin-top:6px;padding-top:8px;border-top:1px solid var(--rt-border)">
+                  Handle: <span style="color:var(--rt-text)">{saved!.handle}</span>
+                </div>
+              )}
+              {editing && (
+                <div style="margin-top:10px;display:flex;gap:8px">
+                  <input class="rt-input" style="flex:1" placeholder={
+                    pm.key==="cashapp" ? "$YourCashTag" :
+                    pm.key==="paypal"  ? "YourPayPalUsername" :
+                    pm.key==="zelle"   ? "phone or email" :
+                    pm.key==="applepay"? "phone number" :
+                    pm.key==="chime"   ? "username or phone" : "username or phone"
+                  } value={localHandle} onInput={e => setLocalHandle((e.target as HTMLInputElement).value)} onKeyDown={e => { if(e.key==="Enter"&&localHandle.trim()) saveHandle(pm.key, localHandle.trim()); }} />
+                  <button class="rt-btn rt-btn-primary rt-btn-sm" disabled={!localHandle.trim()||saving===pm.key} onClick={() => saveHandle(pm.key, localHandle.trim())}>
+                    {saving===pm.key ? "..." : "Save"}
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Property[]; reload: () => void }) {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ name: "", propertyId: "", amount: "", dueDate: "", frequency: "monthly", status: "pending", notes: "" });
@@ -517,11 +611,12 @@ function AdminPanel({ onExit }: { onExit: () => void }) {
   const [payments,,reloadPayments] = useData<Payment>("payments");
   const [allocations,,reloadAllocs] = useData<Allocation>("allocations");
   const [bills,,reloadBills] = useData<Bill>("bills");
+  const [payMethods,,reloadPayMethods] = useData<PayMethod>("payMethods");
   const [tab, setTab] = useState("properties");
   return (
     <div>
-      <div class="rt-tabs" style="display:flex;align-items:center;gap:4px">
-        {[["properties","🏘️ Properties"],["renters","👤 Renters"],["payments","💳 Payments"],["allocations","🥧 Allocations"],["bills","🧾 Bills"]].map(([id,label]) => (
+      <div class="rt-tabs" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+        {[["properties","🏘️ Properties"],["renters","👤 Renters"],["payments","💳 Payments"],["allocations","🥧 Allocations"],["bills","🧾 Bills"],["paymethods","💸 Pay Methods"]].map(([id,label]) => (
           <button key={id} class={`rt-tab${tab===id?" active":""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
         <button class="rt-btn rt-btn-ghost rt-btn-sm" style="margin-left:auto;white-space:nowrap" onClick={onExit}>← Renter Portal</button>
@@ -531,11 +626,12 @@ function AdminPanel({ onExit }: { onExit: () => void }) {
       {tab==="payments" && <PaymentsTab payments={payments} renters={renters} reload={reloadPayments} />}
       {tab==="allocations" && <AllocationsTab allocations={allocations} reload={reloadAllocs} />}
       {tab==="bills" && <BillsTab bills={bills} properties={properties} reload={reloadBills} />}
+      {tab==="paymethods" && <PayMethodsTab payMethods={payMethods} reload={reloadPayMethods} />}
     </div>
   );
 }
 
-function RenterPortal({ renters, properties, payments, allocations, bills, reloadBills, onAdminLogin }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[]; bills: Bill[]; reloadBills: () => void; onAdminLogin: () => void }) {
+function RenterPortal({ renters, properties, payments, allocations, bills, reloadBills, payMethods, onAdminLogin }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[]; bills: Bill[]; reloadBills: () => void; payMethods: PayMethod[]; onAdminLogin: () => void }) {
   const [renterId, setRenterId] = useState("");
   const [pinInput, setPinInput] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
@@ -691,6 +787,31 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
           </div>
         </div>
       )}
+      {payMethods.filter(m => m.enabled && m.handle).length > 0 && (
+        <div class="rt-card" style="margin-bottom:16px">
+          <div class="rt-card-title" style="margin-bottom:14px">💸 How to Pay</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            {payMethods.filter(m => m.enabled && m.handle).map(m => {
+              const def = PAY_METHODS.find(p => p.key === m.method);
+              if (!def) return null;
+              return (
+                <div key={m.id} style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid var(--rt-border)">
+                  <span style="font-size:20px;line-height:1.4">{def.icon}</span>
+                  <div style="flex:1">
+                    <div style="font-weight:600;font-size:14px;margin-bottom:3px">{def.label}</div>
+                    <div style="font-size:13px;color:var(--rt-muted)">{def.instructions(m.handle)}</div>
+                  </div>
+                  {def.linkTemplate && (
+                    <a href={def.linkTemplate(m.handle)} target="_blank" rel="noopener noreferrer" class="rt-btn rt-btn-primary rt-btn-sm" style="white-space:nowrap;text-decoration:none">
+                      Pay Now
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {myBills.length > 0 && (
         <div class="rt-card" style="margin-bottom:16px">
           <div class="rt-card-title" style="margin-bottom:14px">🧾 Bills</div>
@@ -776,6 +897,7 @@ export function App() {
   const [payments] = useData<Payment>("payments");
   const [allocations] = useData<Allocation>("allocations");
   const [bills,,reloadBills] = useData<Bill>("bills");
+  const [payMethods] = useData<PayMethod>("payMethods");
   const goAdmin = () => { setAdminUnlocked(false); setMode("admin"); };
   const exitAdmin = () => { setAdminUnlocked(false); setMode("renter"); };
   return (
@@ -785,7 +907,7 @@ export function App() {
       </div>
       {mode==="admin"
         ? adminUnlocked ? <AdminPanel onExit={exitAdmin} /> : <AdminAuth onUnlock={() => setAdminUnlocked(true)} />
-        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} bills={bills} reloadBills={reloadBills} onAdminLogin={goAdmin} />
+        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} bills={bills} reloadBills={reloadBills} payMethods={payMethods} onAdminLogin={goAdmin} />
       }
     </div>
   );
