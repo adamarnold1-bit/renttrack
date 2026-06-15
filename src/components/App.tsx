@@ -7,7 +7,8 @@ const fmt = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigi
 const COLORS = ["#00c9a7","#f59e0b","#818cf8","#f43f5e","#34d399","#60a5fa","#fb923c","#e879f9"];
 
 type Property = { id: string; name: string; address: string; units: number };
-type Renter = { id: string; name: string; email: string; propertyId: string; unit: string; rentAmount: number; dueDay: number; pin?: string };
+type Renter = { id: string; name: string; email: string; propertyId: string; unit: string; rentAmount: number; rentFrequency: "monthly"|"weekly"; dueDay: number; pin?: string };
+const WEEKDAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 type Payment = { id: string; renterId: string; amount: number; date: string; status: "paid"|"pending"|"late"; note: string };
 type Allocation = { id: string; label: string; pct: number; color: string };
 type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string; confirmationNumber?: string };
@@ -109,12 +110,12 @@ function PropertiesTab({ properties, reload }: { properties: Property[]; reload:
 
 function RentersTab({ renters, properties, reload }: { renters: Renter[]; properties: Property[]; reload: () => void }) {
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", propertyId: "", unit: "", rentAmount: "", dueDay: "1", pin: "" });
+  const [form, setForm] = useState({ name: "", email: "", propertyId: "", unit: "", rentAmount: "", rentFrequency: "monthly", dueDay: "1", pin: "" });
   const save = async () => {
     if (!form.name || !form.propertyId || !form.rentAmount) { toast("Name, property, and rent required", "error"); return; }
     if (form.pin && (form.pin.length !== 4 || !/^\d{4}$/.test(form.pin))) { toast("PIN must be exactly 4 digits", "error"); return; }
     await post("renters", { ...form, rentAmount: parseFloat(form.rentAmount), dueDay: parseInt(form.dueDay), pin: form.pin || null });
-    toast("Renter added"); setModal(false); setForm({ name: "", email: "", propertyId: "", unit: "", rentAmount: "", dueDay: "1", pin: "" }); reload();
+    toast("Renter added"); setModal(false); setForm({ name: "", email: "", propertyId: "", unit: "", rentAmount: "", rentFrequency: "monthly", dueDay: "1", pin: "" }); reload();
   };
   const remove = async (id: string) => {
     if (!await confirm("Delete this renter?")) return;
@@ -132,13 +133,14 @@ function RentersTab({ renters, properties, reload }: { renters: Renter[]; proper
       ) : (
         <div class="rt-table-wrap">
           <table class="rt-table">
-            <thead><tr><th>Name</th><th>Property</th><th>Unit</th><th>Rent</th><th>Due</th><th>PIN</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Property</th><th>Unit</th><th>Rent</th><th>Freq</th><th>Due</th><th>PIN</th><th></th></tr></thead>
             <tbody>
               {renters.map(r => (
                 <tr key={r.id}>
                   <td>{r.name}</td><td>{propName(r.propertyId)}</td><td>{r.unit||"—"}</td>
                   <td style="color:var(--rt-teal);font-weight:600">{fmt(r.rentAmount)}</td>
-                  <td>Day {r.dueDay}</td>
+                  <td style="text-transform:capitalize">{r.rentFrequency || "monthly"}</td>
+                  <td>{(r.rentFrequency==="weekly") ? WEEKDAYS[(r.dueDay||1)-1] : `Day ${r.dueDay}`}</td>
                   <td>{r.pin ? "••••" : <span class="text-dim">None</span>}</td>
                   <td><button class="rt-btn rt-btn-danger rt-btn-sm" onClick={() => remove(r.id)}>Remove</button></td>
                 </tr>
@@ -161,9 +163,35 @@ function RentersTab({ renters, properties, reload }: { renters: Renter[]; proper
             </div>
             <div class="rt-form-row">
               <div class="rt-field"><label class="rt-label">Unit</label><input class="rt-input" value={form.unit} onInput={e => setForm(f => ({ ...f, unit: (e.target as HTMLInputElement).value }))} placeholder="2B" /></div>
-              <div class="rt-field"><label class="rt-label">Due Day</label><input class="rt-input" type="number" inputMode="numeric" value={form.dueDay} min="1" max="31" onInput={e => setForm(f => ({ ...f, dueDay: (e.target as HTMLInputElement).value }))} /></div>
+              <div class="rt-field">
+                <label class="rt-label">Frequency</label>
+                <select class="rt-select" value={form.rentFrequency} onChange={e => setForm(f => ({ ...f, rentFrequency: (e.target as HTMLSelectElement).value, dueDay: "1" }))}>
+                  <option value="monthly">Monthly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
             </div>
-            <div class="rt-field"><label class="rt-label">Monthly Rent</label><input class="rt-input" type="number" inputMode="decimal" value={form.rentAmount} onInput={e => setForm(f => ({ ...f, rentAmount: (e.target as HTMLInputElement).value }))} placeholder="1200.00" /></div>
+            <div class="rt-form-row">
+              <div class="rt-field" style="flex:2">
+                <label class="rt-label">Rent Amount</label>
+                <input class="rt-input" type="number" inputMode="decimal" value={form.rentAmount} onInput={e => setForm(f => ({ ...f, rentAmount: (e.target as HTMLInputElement).value }))} placeholder="1200.00" />
+              </div>
+              <div class="rt-field" style="flex:1">
+                {form.rentFrequency === "weekly" ? (
+                  <>
+                    <label class="rt-label">Due Day</label>
+                    <select class="rt-select" value={form.dueDay} onChange={e => setForm(f => ({ ...f, dueDay: (e.target as HTMLSelectElement).value }))}>
+                      {WEEKDAYS.map((d,i) => <option value={String(i+1)}>{d}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <>
+                    <label class="rt-label">Due Day</label>
+                    <input class="rt-input" type="number" inputMode="numeric" value={form.dueDay} min="1" max="31" onInput={e => setForm(f => ({ ...f, dueDay: (e.target as HTMLInputElement).value }))} />
+                  </>
+                )}
+              </div>
+            </div>
             <div class="rt-field"><label class="rt-label">4-Digit Portal PIN</label><input class="rt-input" type="password" inputMode="numeric" maxLength={4} value={form.pin} onInput={e => setForm(f => ({ ...f, pin: (e.target as HTMLInputElement).value }))} placeholder="••••" /></div>
             <button class="rt-btn rt-btn-primary w-full mt-2" onClick={save}>Save Renter</button>
           </div>
@@ -451,7 +479,7 @@ function AdminAuth({ onUnlock }: { onUnlock: () => void }) {
   );
 }
 
-function AdminPanel() {
+function AdminPanel({ onExit }: { onExit: () => void }) {
   const [properties,,reloadProps] = useData<Property>("properties");
   const [renters,,reloadRenters] = useData<Renter>("renters");
   const [payments,,reloadPayments] = useData<Payment>("payments");
@@ -460,10 +488,11 @@ function AdminPanel() {
   const [tab, setTab] = useState("properties");
   return (
     <div>
-      <div class="rt-tabs">
+      <div class="rt-tabs" style="display:flex;align-items:center;gap:4px">
         {[["properties","🏘️ Properties"],["renters","👤 Renters"],["payments","💳 Payments"],["allocations","🥧 Allocations"],["bills","🧾 Bills"]].map(([id,label]) => (
           <button key={id} class={`rt-tab${tab===id?" active":""}`} onClick={() => setTab(id)}>{label}</button>
         ))}
+        <button class="rt-btn rt-btn-ghost rt-btn-sm" style="margin-left:auto;white-space:nowrap" onClick={onExit}>← Renter Portal</button>
       </div>
       {tab==="properties" && <PropertiesTab properties={properties} reload={reloadProps} />}
       {tab==="renters" && <RentersTab renters={renters} properties={properties} reload={reloadRenters} />}
@@ -474,7 +503,7 @@ function AdminPanel() {
   );
 }
 
-function RenterPortal({ renters, properties, payments, allocations, bills, reloadBills }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[]; bills: Bill[]; reloadBills: () => void }) {
+function RenterPortal({ renters, properties, payments, allocations, bills, reloadBills, onAdminLogin }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[]; bills: Bill[]; reloadBills: () => void; onAdminLogin: () => void }) {
   const [renterId, setRenterId] = useState("");
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
@@ -535,6 +564,9 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
             )}
           </div>
           {renters.length===0 && <div class="text-dim text-sm mt-2">No renters set up yet.</div>}
+          <div style="margin-top:24px;text-align:center">
+            <button class="rt-btn rt-btn-ghost rt-btn-sm" onClick={onAdminLogin} style="opacity:0.6;font-size:12px">🔐 Admin Login</button>
+          </div>
         </div>
       </div>
     );
@@ -546,7 +578,11 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
         <div class="rt-portal-name">👋 Hi, {renter.name}</div>
         <div class="rt-portal-prop">{property?.name ?? "—"}{renter.unit ? ` · Unit ${renter.unit}` : ""}</div>
         <div class="rt-portal-amount">{fmt(renter.rentAmount)}</div>
-        <div class="rt-portal-due">Monthly rent · Due on the {renter.dueDay}{renter.dueDay===1?"st":renter.dueDay===2?"nd":renter.dueDay===3?"rd":"th"}</div>
+        <div class="rt-portal-due">
+          {(renter.rentFrequency==="weekly")
+            ? `Weekly rent · Due every ${WEEKDAYS[(renter.dueDay||1)-1]}`
+            : `Monthly rent · Due on the ${renter.dueDay}${renter.dueDay===1?"st":renter.dueDay===2?"nd":renter.dueDay===3?"rd":"th"}`}
+        </div>
         <div style="margin-top:16px;display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
           <div class="rt-stat" style="flex:1;min-width:120px"><div class="rt-stat-label">Total Paid</div><div class="rt-stat-value teal" style="font-size:18px">{fmt(paid)}</div></div>
           <div class="rt-stat" style="flex:1;min-width:120px"><div class="rt-stat-label">Payments</div><div class="rt-stat-value" style="font-size:18px">{myPayments.length}</div></div>
@@ -565,7 +601,7 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
                 <div class="rt-alloc-label"><div class="rt-alloc-dot" style={`background:${a.color}`} />{a.label}</div>
                 <div class="flex items-center gap-2">
                   <span class="rt-alloc-pct">{a.pct}%</span>
-                  <span class="rt-alloc-amt">{fmt(renter.rentAmount * a.pct / 100)}/mo</span>
+                  <span class="rt-alloc-amt">{fmt(renter.rentAmount * a.pct / 100)}/{renter.rentFrequency==="weekly"?"wk":"mo"}</span>
                 </div>
               </div>
             ))}
@@ -649,26 +685,23 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
 }
 
 export function App() {
-  const [mode, setMode] = useState<"admin"|"renter">("admin");
+  const [mode, setMode] = useState<"admin"|"renter">("renter");
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [renters] = useData<Renter>("renters");
   const [properties] = useData<Property>("properties");
   const [payments] = useData<Payment>("payments");
   const [allocations] = useData<Allocation>("allocations");
   const [bills,,reloadBills] = useData<Bill>("bills");
-  const handleModeSwitch = (m: "admin"|"renter") => { if (m==="admin") setAdminUnlocked(false); setMode(m); };
+  const goAdmin = () => { setAdminUnlocked(false); setMode("admin"); };
+  const exitAdmin = () => { setAdminUnlocked(false); setMode("renter"); };
   return (
     <div class="rt-shell">
       <div class="rt-header">
         <div class="rt-logo"><div class="rt-logo-icon">🏠</div><div class="rt-logo-text">Rent<span>Track</span></div></div>
-        <div class="rt-mode-toggle">
-          <button class={`rt-mode-btn${mode==="admin"?" active":""}`} onClick={() => handleModeSwitch("admin")}>Admin</button>
-          <button class={`rt-mode-btn${mode==="renter"?" active":""}`} onClick={() => handleModeSwitch("renter")}>Renter</button>
-        </div>
       </div>
       {mode==="admin"
-        ? adminUnlocked ? <AdminPanel /> : <AdminAuth onUnlock={() => setAdminUnlocked(true)} />
-        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} bills={bills} reloadBills={reloadBills} />
+        ? adminUnlocked ? <AdminPanel onExit={exitAdmin} /> : <AdminAuth onUnlock={() => setAdminUnlocked(true)} />
+        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} bills={bills} reloadBills={reloadBills} onAdminLogin={goAdmin} />
       }
     </div>
   );
