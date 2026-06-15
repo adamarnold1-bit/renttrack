@@ -10,7 +10,7 @@ type Property = { id: string; name: string; address: string; units: number };
 type Renter = { id: string; name: string; email: string; propertyId: string; unit: string; rentAmount: number; dueDay: number; pin?: string };
 type Payment = { id: string; renterId: string; amount: number; date: string; status: "paid"|"pending"|"late"; note: string };
 type Allocation = { id: string; label: string; pct: number; color: string };
-type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string };
+type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string; confirmationNumber?: string };
 
 function toast(msg: string, type: "success"|"error"|"info" = "success") {
   const el = document.createElement("div");
@@ -474,11 +474,14 @@ function AdminPanel() {
   );
 }
 
-function RenterPortal({ renters, properties, payments, allocations }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[] }) {
+function RenterPortal({ renters, properties, payments, allocations, bills, reloadBills }: { renters: Renter[]; properties: Property[]; payments: Payment[]; allocations: Allocation[]; bills: Bill[]; reloadBills: () => void }) {
   const [renterId, setRenterId] = useState("");
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const [billToMark, setBillToMark] = useState<Bill | null>(null);
+  const [confirmNum, setConfirmNum] = useState("");
+  const [markingPaid, setMarkingPaid] = useState(false);
   const selectedRenter = renters.find(r => r.id === renterId);
   const handlePinSubmit = () => {
     if (!selectedRenter) return;
@@ -491,6 +494,19 @@ function RenterPortal({ renters, properties, payments, allocations }: { renters:
   const myPayments = payments.filter(p => p.renterId === renterId);
   const paid = myPayments.filter(p => p.status==="paid").reduce((s,p) => s+p.amount, 0);
   const allTotal = allocations.reduce((s,a) => s+a.pct, 0);
+  const myBills = renter ? bills.filter(b => b.propertyId === renter.propertyId) : [];
+  const handleMarkPaid = async () => {
+    if (!billToMark || !confirmNum.trim()) return;
+    setMarkingPaid(true);
+    await apiFetch(`${API("bills")}&id=${billToMark.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "paid", confirmationNumber: confirmNum.trim() })
+    });
+    reloadBills();
+    toast("Bill marked as paid ✓");
+    setBillToMark(null); setConfirmNum(""); setMarkingPaid(false);
+  };
 
   if (!renterId || !renter) {
     return (
@@ -556,6 +572,33 @@ function RenterPortal({ renters, properties, payments, allocations }: { renters:
           </div>
         </div>
       )}
+      {myBills.length > 0 && (
+        <div class="rt-card" style="margin-bottom:16px">
+          <div class="rt-card-title" style="margin-bottom:14px">🧾 Bills</div>
+          <div class="rt-table-wrap">
+            <table class="rt-table">
+              <thead><tr><th>Bill</th><th>Amount</th><th>Due Date</th><th>Frequency</th><th>Status</th><th>Confirmation #</th><th></th></tr></thead>
+              <tbody>
+                {myBills.map(b => (
+                  <tr key={b.id}>
+                    <td style="font-weight:600">{b.name}</td>
+                    <td>{fmt(b.amount)}</td>
+                    <td>{b.dueDate || "—"}</td>
+                    <td style="text-transform:capitalize">{b.frequency}</td>
+                    <td><span class={`rt-badge ${b.status==="paid"?"rt-badge-success":b.status==="overdue"?"rt-badge-danger":"rt-badge-warning"}`}>{b.status}</span></td>
+                    <td class="text-dim">{b.confirmationNumber || "—"}</td>
+                    <td>
+                      {b.status !== "paid" && (
+                        <button class="rt-btn rt-btn-primary rt-btn-sm" onClick={() => { setBillToMark(b); setConfirmNum(""); }}>Mark Paid</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       <div class="rt-card">
         <div class="rt-card-title" style="margin-bottom:14px">Payment History</div>
         {myPayments.length===0 ? (
@@ -580,6 +623,27 @@ function RenterPortal({ renters, properties, payments, allocations }: { renters:
       <div style="margin-top:16px;text-align:center">
         <button class="rt-btn rt-btn-ghost rt-btn-sm" onClick={() => handleRenterChange("")}>← Switch Renter</button>
       </div>
+      {billToMark && (
+        <Modal title={`Mark as Paid — ${billToMark.name}`} onClose={() => { setBillToMark(null); setConfirmNum(""); }}>
+          <div class="rt-form">
+            <div class="rt-field">
+              <label class="rt-label">Bill</label>
+              <div style="padding:8px 0;font-weight:600">{billToMark.name} — {fmt(billToMark.amount)}</div>
+            </div>
+            <div class="rt-field">
+              <label class="rt-label">Confirmation Number</label>
+              <input class="rt-input" placeholder="Enter payment confirmation #" value={confirmNum}
+                onInput={e => setConfirmNum((e.target as HTMLInputElement).value)}
+                onKeyDown={e => { if (e.key === "Enter" && confirmNum.trim()) handleMarkPaid(); }}
+              />
+              <div style="font-size:12px;color:var(--rt-muted);margin-top:4px">Enter the confirmation number from your payment receipt.</div>
+            </div>
+            <button class="rt-btn rt-btn-primary w-full mt-2" onClick={handleMarkPaid} disabled={!confirmNum.trim() || markingPaid}>
+              {markingPaid ? "Saving..." : "Confirm Payment"}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -591,6 +655,7 @@ export function App() {
   const [properties] = useData<Property>("properties");
   const [payments] = useData<Payment>("payments");
   const [allocations] = useData<Allocation>("allocations");
+  const [bills,,reloadBills] = useData<Bill>("bills");
   const handleModeSwitch = (m: "admin"|"renter") => { if (m==="admin") setAdminUnlocked(false); setMode(m); };
   return (
     <div class="rt-shell">
@@ -603,7 +668,7 @@ export function App() {
       </div>
       {mode==="admin"
         ? adminUnlocked ? <AdminPanel /> : <AdminAuth onUnlock={() => setAdminUnlocked(true)} />
-        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} />
+        : <RenterPortal renters={renters} properties={properties} payments={payments} allocations={allocations} bills={bills} reloadBills={reloadBills} />
       }
     </div>
   );
