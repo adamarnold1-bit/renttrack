@@ -23,9 +23,9 @@ html, body, #app { min-height: 100dvh; background: var(--rt-navy); color: var(--
 
 .rt-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 0 20px; border-bottom: 1px solid var(--rt-border); margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
 .rt-logo { display: flex; align-items: center; gap: 10px; }
-.rt-logo-icon { width: 34px; height: 34px; background: linear-gradient(135deg, var(--rt-teal), #00e5c4); border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
-.rt-logo-text { font-size: 17px; font-weight: 700; }
-.rt-logo-text span { color: var(--rt-teal); }
+.rt-logo-badge { background: #fff; border-radius: 8px; padding: 5px 9px; display: flex; align-items: center; }
+.rt-logo-img { height: 28px; width: auto; display: block; }
+.rt-logo-text { font-size: 17px; font-weight: 700; color: #fff; letter-spacing: 0.01em; }
 
 .rt-mode-toggle { display: flex; gap: 4px; background: var(--rt-surface); border-radius: 999px; padding: 4px; border: 1px solid var(--rt-border); }
 .rt-mode-btn { padding: 6px 16px; border-radius: 999px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; background: transparent; color: var(--rt-text-dim); transition: all 0.2s; }

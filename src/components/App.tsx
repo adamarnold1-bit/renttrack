@@ -1133,7 +1133,7 @@ export function App() {
   return (
     <div class="rt-shell">
       <div class="rt-header">
-        <div class="rt-logo"><div class="rt-logo-icon">🏠</div><div class="rt-logo-text">Rent<span>Track</span></div></div>
+        <div class="rt-logo"><div class="rt-logo-badge"><img src="/logo.png" alt="Arnold Ventures" class="rt-logo-img" /></div><div class="rt-logo-text">Properties</div></div>
       </div>
       {mode==="admin"
         ? adminUnlocked ? <AdminPanel onExit={exitAdmin} /> : <AdminAuth onUnlock={() => setAdminUnlocked(true)} />
