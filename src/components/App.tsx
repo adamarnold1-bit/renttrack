@@ -226,12 +226,31 @@ function RentersTab({ renters, properties, reload }: { renters: Renter[]; proper
     await del("renters", id); reload(); toast("Removed");
   };
   const propName = (id: string) => properties.find(p => p.id === id)?.name ?? "—";
+  const weeklyTotal  = renters.reduce((s, r) => s + (r.rentFrequency === "weekly" ? r.rentAmount : r.rentAmount / 4.333), 0);
+  const monthlyTotal = renters.reduce((s, r) => s + (r.rentFrequency === "monthly" ? r.rentAmount : r.rentAmount * 4.333), 0);
+  const bestCase     = monthlyTotal * 12;
   return (
     <div>
       <div class="rt-card-header">
         <div class="rt-card-title">Renters ({renters.length})</div>
         <button class="rt-btn rt-btn-primary rt-btn-sm" onClick={() => setModal(true)}>+ Add Renter</button>
       </div>
+      {renters.length > 0 && (
+        <div class="rt-stats" style="margin-bottom:20px">
+          <div class="rt-stat">
+            <div class="rt-stat-label">Est. Weekly</div>
+            <div class="rt-stat-value teal">{fmt(weeklyTotal)}</div>
+          </div>
+          <div class="rt-stat">
+            <div class="rt-stat-label">Est. Monthly</div>
+            <div class="rt-stat-value teal">{fmt(monthlyTotal)}</div>
+          </div>
+          <div class="rt-stat">
+            <div class="rt-stat-label">Best Case / Year</div>
+            <div class="rt-stat-value amber">{fmt(bestCase)}</div>
+          </div>
+        </div>
+      )}
       {renters.length === 0 ? (
         <div class="rt-empty"><div class="rt-empty-icon">👤</div><div>No renters yet.</div></div>
       ) : (
