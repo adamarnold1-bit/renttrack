@@ -8,7 +8,7 @@ const fmt = (n: number) => "$" + n.toLocaleString("en-US", { minimumFractionDigi
 const COLORS = ["#00c9a7","#f59e0b","#818cf8","#f43f5e","#34d399","#60a5fa","#fb923c","#e879f9"];
 
 type Property = { id: string; name: string; address: string; units: number; unitNames?: string[] };
-type Renter = { id: string; name: string; email: string; phone?: string; propertyId: string; unit: string; rentAmount: number; rentFrequency: "monthly"|"weekly"; dueDay: number; pin?: string; photo?: string };
+type Renter = { id: string; name: string; email: string; phone?: string; propertyId: string; unit: string; rentAmount: number; rentFrequency: "monthly"|"weekly"; dueDay: number; pin?: string; photo?: string; rentBreakdown?: string };
 type Message = { id: string; renterId: string; renterName: string; propertyId: string; text: string; createdAt: string; isAdmin?: boolean };
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 type Payment = { id: string; renterId: string; amount: number; date: string; paidThrough: string; status: "paid"|"pending"|"late"; note: string };
@@ -202,11 +202,11 @@ function PropertiesTab({ properties, reload }: { properties: Property[]; reload:
 function RentersTab({ renters, properties, reload }: { renters: Renter[]; properties: Property[]; reload: () => void }) {
   const [modal, setModal] = useState(false);
   const [editRenter, setEditRenter] = useState<Renter | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", propertyId: "", unit: "", rentAmount: "", rentFrequency: "monthly", dueDay: "1", pin: "" });
+  const [editForm, setEditForm] = useState({ name: "", email: "", phone: "", propertyId: "", unit: "", rentAmount: "", rentFrequency: "monthly", dueDay: "1", pin: "", rentBreakdown: "" });
   const [form, setForm] = useState({ name: "", email: "", propertyId: "", unit: "", rentAmount: "", rentFrequency: "monthly", dueDay: "1", pin: "" });
   const openEdit = (r: Renter) => {
     setEditRenter(r);
-    setEditForm({ name: r.name, email: r.email || "", phone: r.phone || "", propertyId: r.propertyId, unit: r.unit || "", rentAmount: String(r.rentAmount), rentFrequency: r.rentFrequency || "monthly", dueDay: String(r.dueDay || 1), pin: r.pin || "" });
+    setEditForm({ name: r.name, email: r.email || "", phone: r.phone || "", propertyId: r.propertyId, unit: r.unit || "", rentAmount: String(r.rentAmount), rentFrequency: r.rentFrequency || "monthly", dueDay: String(r.dueDay || 1), pin: r.pin || "", rentBreakdown: r.rentBreakdown || "" });
   };
   const saveEdit = async () => {
     if (!editRenter) return;
@@ -402,6 +402,10 @@ function RentersTab({ renters, properties, reload }: { renters: Renter[]; proper
             <div class="rt-field">
               <label class="rt-label">Portal PIN <span style="font-weight:400;opacity:0.6">(4 digits)</span></label>
               <input class="rt-input" type="password" inputMode="numeric" maxLength={4} value={editForm.pin} onInput={e => setEditForm(f => ({ ...f, pin: (e.target as HTMLInputElement).value }))} placeholder="Leave blank to clear" />
+            </div>
+            <div class="rt-field">
+              <label class="rt-label">Rent Breakdown / Notes <span style="font-weight:400;opacity:0.6">(visible to renter)</span></label>
+              <textarea class="rt-input rt-textarea" rows={4} value={editForm.rentBreakdown} onInput={e => setEditForm(f => ({ ...f, rentBreakdown: (e.target as HTMLTextAreaElement).value }))} placeholder={"e.g.\nBase rent: $800\nUtilities: $150\nParking: $50\n\nAgreed to pay by the 5th each month."} />
             </div>
             <button class="rt-btn rt-btn-primary w-full mt-2" onClick={saveEdit}>Save Changes</button>
           </div>
@@ -1233,6 +1237,12 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
           )}
         </div>
       </div>
+      {renter.rentBreakdown && (
+        <div class="rt-card" style="margin-bottom:16px">
+          <div class="rt-card-title" style="margin-bottom:10px">🧾 Rent Breakdown</div>
+          <pre class="rt-breakdown-text">{renter.rentBreakdown}</pre>
+        </div>
+      )}
       {allocations.length > 0 && (
         <div class="rt-card" style="margin-bottom:16px">
           <div class="rt-card-title" style="margin-bottom:12px">Where Your Rent Goes</div>
