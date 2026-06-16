@@ -984,47 +984,44 @@ function AdminChatTab({ messages, renters, properties, reload }: { messages: Mes
   );
 }
 
+const ADMIN_HASH = import.meta.env.VITE_ADMIN_PIN_HASH as string | undefined;
+
+async function sha256(str: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 function AdminAuth({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState("");
-  const [confirm2, setConfirm2] = useState("");
   const [error, setError] = useState("");
-  const stored = localStorage.getItem("rt_admin_pin");
-  const isFirstTime = !stored;
-  const handleSubmit = () => {
-    if (isFirstTime) {
-      if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { setError("PIN must be exactly 4 digits."); return; }
-      if (pin !== confirm2) { setError("PINs don't match."); return; }
-      localStorage.setItem("rt_admin_pin", pin); onUnlock();
+  const [checking, setChecking] = useState(false);
+  const handleSubmit = async () => {
+    if (pin.length < 4) return;
+    setChecking(true);
+    const hash = await sha256(pin);
+    setChecking(false);
+    if (ADMIN_HASH && hash === ADMIN_HASH) {
+      onUnlock();
     } else {
-      if (pin === stored) onUnlock();
-      else { setError("Incorrect PIN."); setPin(""); }
+      setError("Incorrect PIN."); setPin("");
     }
   };
   return (
     <div class="rt-login">
       <div style="font-size:32px;margin-bottom:12px">🔐</div>
       <div class="rt-login-title">Admin Access</div>
-      <div class="rt-login-sub">{isFirstTime ? "Set a 4-digit PIN to protect the admin panel." : "Enter your admin PIN to continue."}</div>
+      <div class="rt-login-sub">Enter your admin PIN to continue.</div>
       <div class="rt-form">
         <div class="rt-field">
-          <label class="rt-label">{isFirstTime ? "Create PIN" : "Admin PIN"}</label>
-          <input class="rt-input" type="password" inputMode="numeric" maxLength={4} placeholder="••••" value={pin}
+          <label class="rt-label">Admin PIN</label>
+          <input class="rt-input" type="password" inputMode="numeric" maxLength={6} placeholder="••••••" value={pin}
             onInput={e => { setPin((e.target as HTMLInputElement).value); setError(""); }}
-            onKeyDown={e => { if (e.key==="Enter" && !isFirstTime) handleSubmit(); }}
+            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
           />
         </div>
-        {isFirstTime && (
-          <div class="rt-field">
-            <label class="rt-label">Confirm PIN</label>
-            <input class="rt-input" type="password" inputMode="numeric" maxLength={4} placeholder="••••" value={confirm2}
-              onInput={e => { setConfirm2((e.target as HTMLInputElement).value); setError(""); }}
-              onKeyDown={e => { if (e.key==="Enter") handleSubmit(); }}
-            />
-          </div>
-        )}
         {error && <div style="color:var(--rt-rose);font-size:13px">{error}</div>}
-        <button class="rt-btn rt-btn-primary w-full" onClick={handleSubmit} disabled={isFirstTime ? pin.length!==4||confirm2.length!==4 : pin.length!==4}>
-          {isFirstTime ? "Set PIN & Enter" : "Unlock"}
+        <button class="rt-btn rt-btn-primary w-full" onClick={handleSubmit} disabled={pin.length < 4 || checking}>
+          {checking ? "Checking..." : "Unlock"}
         </button>
       </div>
     </div>
