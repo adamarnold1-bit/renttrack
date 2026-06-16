@@ -27,7 +27,7 @@ function paidThroughDefault(renter: Renter | undefined, payDate: string): string
   return d.toISOString().slice(0, 10);
 }
 type Allocation = { id: string; label: string; pct: number; color: string };
-type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string; confirmationNumber?: string };
+type Bill = { id: string; name: string; propertyId: string; amount: number; dueDate: string; frequency: string; status: "paid"|"pending"|"overdue"; notes: string; confirmationNumber?: string; documentUrl?: string; documentName?: string };
 type PayMethod = { id: string; method: string; handle: string; enabled: boolean };
 
 const PAY_METHODS: { key: string; label: string; icon: string; linkTemplate?: (h: string) => string; instructions: (h: string) => string }[] = [
@@ -696,6 +696,7 @@ function PayMethodsTab({ payMethods, reload }: { payMethods: PayMethod[]; reload
 
 function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Property[]; reload: () => void }) {
   const [modal, setModal] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", propertyId: "", amount: "", dueDate: "", frequency: "monthly", status: "pending", notes: "" });
   const save = async () => {
     if (!form.name || !form.amount) { toast("Name and amount required", "error"); return; }
@@ -709,6 +710,37 @@ function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Pr
   const updateStatus = async (bill: Bill, status: string) => {
     await apiFetch(`${API("bills")}&id=${bill.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     reload(); toast("Status updated");
+  };
+  const uploadDoc = async (bill: Bill, file: File) => {
+    if (file.size > 4 * 1024 * 1024) { toast("File too large — max 4MB", "error"); return; }
+    setUploading(bill.id);
+    try {
+      const base64 = await new Promise<string>((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res((r.result as string).split(",")[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      const result = await apiFetch("/api/upload-bill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/pdf", data: base64 }),
+      });
+      await apiFetch(`${API("bills")}&id=${bill.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...bill, documentUrl: result.url, documentName: file.name }),
+      });
+      toast("PDF attached ✓"); reload();
+    } catch (e: any) {
+      toast(e?.message || "Upload failed", "error");
+    } finally {
+      setUploading(null);
+    }
+  };
+  const removeDoc = async (bill: Bill) => {
+    await apiFetch(`${API("bills")}&id=${bill.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...bill, documentUrl: null, documentName: null }) });
+    reload(); toast("Attachment removed");
   };
   const propName = (id: string) => properties.find(p => p.id === id)?.name ?? "—";
   const totalMonthly = bills.filter(b => b.frequency === "monthly").reduce((s,b) => s+b.amount, 0);
@@ -734,7 +766,7 @@ function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Pr
       ) : (
         <div class="rt-table-wrap">
           <table class="rt-table">
-            <thead><tr><th>Bill</th><th>Property</th><th>Amount</th><th>Frequency</th><th>Due Date</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+            <thead><tr><th>Bill</th><th>Property</th><th>Amount</th><th>Frequency</th><th>Due Date</th><th>Status</th><th>Notes</th><th>📎</th><th></th></tr></thead>
             <tbody>
               {bills.map(b => (
                 <tr key={b.id}>
@@ -751,6 +783,19 @@ function BillsTab({ bills, properties, reload }: { bills: Bill[]; properties: Pr
                     </select>
                   </td>
                   <td class="text-dim">{b.notes || "—"}</td>
+                  <td>
+                    {b.documentUrl ? (
+                      <div class="flex gap-2 items-center">
+                        <a href={b.documentUrl} target="_blank" class="rt-doc-link" title={b.documentName || "View PDF"}>📄 View</a>
+                        <button class="rt-btn rt-btn-ghost rt-btn-sm" style="opacity:0.5;padding:2px 6px" onClick={() => removeDoc(b)} title="Remove attachment">✕</button>
+                      </div>
+                    ) : (
+                      <label class="rt-btn rt-btn-secondary rt-btn-sm rt-upload-label" title="Attach PDF">
+                        {uploading === b.id ? "⏳" : "📎"}
+                        <input type="file" accept=".pdf,image/*" style="display:none" onChange={e => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadDoc(b, f); }} />
+                      </label>
+                    )}
+                  </td>
                   <td><button class="rt-btn rt-btn-danger rt-btn-sm" onClick={() => remove(b.id)}>✕</button></td>
                 </tr>
               ))}
@@ -1293,7 +1338,7 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
           <div class="rt-card-title" style="margin-bottom:14px">🧾 Bills</div>
           <div class="rt-table-wrap">
             <table class="rt-table">
-              <thead><tr><th>Bill</th><th>Amount</th><th>Due Date</th><th>Frequency</th><th>Status</th><th>Confirmation #</th><th></th></tr></thead>
+              <thead><tr><th>Bill</th><th>Amount</th><th>Due Date</th><th>Frequency</th><th>Status</th><th>Confirmation #</th><th>📎</th><th></th></tr></thead>
               <tbody>
                 {myBills.map(b => (
                   <tr key={b.id}>
@@ -1303,6 +1348,7 @@ function RenterPortal({ renters, properties, payments, allocations, bills, reloa
                     <td style="text-transform:capitalize">{b.frequency}</td>
                     <td><span class={`rt-badge ${b.status==="paid"?"rt-badge-success":b.status==="overdue"?"rt-badge-danger":"rt-badge-warning"}`}>{b.status}</span></td>
                     <td class="text-dim">{b.confirmationNumber || "—"}</td>
+                    <td>{b.documentUrl ? <a href={b.documentUrl} target="_blank" class="rt-doc-link">📄 View</a> : <span class="text-dim">—</span>}</td>
                     <td>
                       {b.status !== "paid" && (
                         <button class="rt-btn rt-btn-primary rt-btn-sm" onClick={() => { setBillToMark(b); setConfirmNum(""); }}>Mark Paid</button>
